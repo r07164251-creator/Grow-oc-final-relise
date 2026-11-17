@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build Grow OC APK
     runs-on: ubuntu-latest
 
     steps:
@@ -28,6 +28,9 @@ jobs:
 
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
 
       - name: Find and extract project ZIP
         shell: bash
@@ -44,17 +47,14 @@ jobs:
             | head -n 1)
 
           if [ -z "$ZIP" ]; then
-            echo "::error::Grow OC ZIP archive not found"
+            echo "::error::Grow OC ZIP not found"
             exit 1
           fi
 
-          echo "Found archive: $ZIP"
-
+          echo "Found ZIP: $ZIP"
           unzip -q "$ZIP" -d "$GITHUB_WORKSPACE/project"
 
-          echo "ZIP extracted successfully"
-
-      - name: Locate Android Gradle project
+      - name: Locate Android project
         id: locate
         shell: bash
         run: |
@@ -78,34 +78,27 @@ jobs:
 
           if [ -z "$ROOT" ]; then
             echo "::error::Android Gradle project not found"
-            echo "Files inside archive:"
             find "$GITHUB_WORKSPACE/project" -maxdepth 5 -type f
             exit 1
           fi
 
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
-          echo "Project root: $ROOT"
+          echo "Found project: $ROOT"
 
-      - name: Verify Gradle Wrapper
+      - name: Check Java and Gradle
         working-directory: ${{ steps.locate.outputs.root }}
         shell: bash
         run: |
           set -euo pipefail
-
           chmod +x gradlew
-
-          echo "Java version:"
           java -version
-
-          echo "Gradle version:"
           ./gradlew --version
 
-      - name: Build Debug APK
+      - name: Build Grow OC Debug APK
         working-directory: ${{ steps.locate.outputs.root }}
         shell: bash
         run: |
           set -euo pipefail
-
           ./gradlew --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK
