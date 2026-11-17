@@ -1,5 +1,5 @@
 
-name: Grow OC Stage 7 - Android APK
+name: Grow OC Stage 7 APK Build
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Grow OC APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -25,59 +25,94 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      - name: Find and extract ZIP
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Find and extract project ZIP
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p project
-          ZIP=$(find . -maxdepth 2 -type f -iname '*.zip' | head -n 1)
+
+          mkdir -p "$GITHUB_WORKSPACE/project"
+
+          ZIP=$(find "$GITHUB_WORKSPACE" \
+            -maxdepth 2 \
+            -type f \
+            -iname '*.zip' \
+            ! -path '*/project/*' \
+            | head -n 1)
+
           if [ -z "$ZIP" ]; then
-            echo "::error::No project ZIP found"
+            echo "::error::Grow OC ZIP archive not found"
             exit 1
           fi
-          echo "Using archive: $ZIP"
-          unzip -q "$ZIP" -d project
 
-      - name: Locate Gradle project
+          echo "Found archive: $ZIP"
+
+          unzip -q "$ZIP" -d "$GITHUB_WORKSPACE/project"
+
+          echo "ZIP extracted successfully"
+
+      - name: Locate Android Gradle project
         id: locate
         shell: bash
         run: |
           set -euo pipefail
-          SETTINGS=$(find "$GITHUB_WORKSPACE/project" \
-            -name settings.gradle.kts -o -name settings.gradle | head -n 1)
-          if [ -z "$SETTINGS" ]; then
-            echo "::error::settings.gradle(.kts) not found"
-            find project -maxdepth 4 -type f
+
+          ROOT=""
+
+          while IFS= read -r SETTINGS; do
+            CANDIDATE=$(dirname "$SETTINGS")
+
+            if [ -f "$CANDIDATE/gradlew" ] && \
+               [ -d "$CANDIDATE/app" ]; then
+              ROOT="$CANDIDATE"
+              break
+            fi
+          done < <(find "$GITHUB_WORKSPACE/project" \
+            -type f \( \
+              -name settings.gradle.kts -o \
+              -name settings.gradle \
+            \))
+
+          if [ -z "$ROOT" ]; then
+            echo "::error::Android Gradle project not found"
+            echo "Files inside archive:"
+            find "$GITHUB_WORKSPACE/project" -maxdepth 5 -type f
             exit 1
           fi
-          ROOT=$(dirname "$SETTINGS")
+
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
           echo "Project root: $ROOT"
-          ls -la "$ROOT"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Verify Gradle Wrapper
+        working-directory: ${{ steps.locate.outputs.root }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chmod +x gradlew
+
+          echo "Java version:"
+          java -version
+
+          echo "Gradle version:"
+          ./gradlew --version
 
       - name: Build Debug APK
         working-directory: ${{ steps.locate.outputs.root }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f gradlew ]; then
-            echo "::error::Gradle Wrapper gradlew not found"
-            exit 1
-          fi
-          chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+
+          ./gradlew --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Grow-OC-Stage-7
+          name: Grow-OC-Stage-7-APK
           path: project/**/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
           retention-days: 7
-          
